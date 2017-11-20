@@ -10,7 +10,7 @@ import (
 	elastic "gopkg.in/olivere/elastic.v5"
 )
 
-func (e *ElasticsearchQuery) esRunAggregationQuery(ctx context.Context, aggregation Aggregation, aggregationQueryList []aggregationQueryData) (*elastic.SearchResult, error) {
+func (e *ElasticsearchQuery) runAggregationQuery(ctx context.Context, aggregation Aggregation, aggregationQueryList []aggregationQueryData) (*elastic.SearchResult, error) {
 
 	now := time.Now().UTC()
 	from := now.Add(aggregation.QueryPeriod.Duration * -1)
@@ -138,8 +138,8 @@ func (e *ElasticsearchQuery) getFunctionAggregation(function string, aggfield st
 		agg = elastic.NewMaxAggregation().Field(aggfield)
 	case "count":
 		agg = elastic.NewValueCountAggregation().Field(aggfield)
-	case "percentile":
-		agg = elastic.NewPercentilesAggregation().Field(aggfield)
+	// case "percentile":
+	// 	agg = elastic.NewPercentilesAggregation().Field(aggfield)
 	default:
 		return agg, fmt.Errorf("Aggregation function %s not supported", function)
 	}

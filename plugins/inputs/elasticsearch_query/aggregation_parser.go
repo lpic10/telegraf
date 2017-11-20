@@ -48,21 +48,20 @@ func (e *ElasticsearchQuery) recurseResponse(aggKeys []*aggKey, aggs elastic.Agg
 	for _, aggKey := range aggKeys {
 		resp := e.getResponseAggregation(aggKey.function, aggKey.name, aggs)
 
-		switch resp := resp.(type) {
-		case *elastic.AggregationValueMetric:
+		if resp != nil {
 
-			// we've found a metric aggregation, add to field map
-			if resp != nil {
+			switch resp := resp.(type) {
+			case *elastic.AggregationValueMetric:
 
-				if resp.Value == nil {
-					fields[aggKey.name] = float64(0)
-				} else {
+				// we've found a metric aggregation, add to field map
+
+				fields[aggKey.name] = float64(0)
+
+				if resp.Value != nil {
 					fields[aggKey.name] = *resp.Value
 				}
 
-			}
-		case *elastic.AggregationBucketKeyItems:
-			if resp != nil {
+			case *elastic.AggregationBucketKeyItems:
 				// we've found a terms aggregation, iterate over the buckets and try to retrieve the inner aggregation values
 				for item := range resp.Buckets {
 					bucket := resp.Buckets[item]
@@ -75,11 +74,12 @@ func (e *ElasticsearchQuery) recurseResponse(aggKeys []*aggKey, aggs elastic.Agg
 						return err
 					}
 				}
-				// no fields means we don't have a new point
+				return nil
+
+			case *elastic.AggregationPercentilesMetric:
+				// TODO
 				return nil
 			}
-		case *elastic.AggregationPercentilesMetric:
-			// TODO
 		}
 	}
 

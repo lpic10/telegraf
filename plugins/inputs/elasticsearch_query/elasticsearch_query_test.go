@@ -261,10 +261,67 @@ func TestElasticsearchQuery_getMetricFields(t *testing.T) {
 // 	}
 // }
 
-func TestElasticsearchQuery_Gather(t *testing.T) {
+// func TestElasticsearchQuery_Gather(t *testing.T) {
 
-	var acc testutil.Accumulator
+// 	//var acc testutil.Accumulator
 
+// 	type fields struct {
+// 		URLs                []string
+// 		Username            string
+// 		Password            string
+// 		EnableSniffer       bool
+// 		Tracelog            bool
+// 		Timeout             internal.Duration
+// 		HealthCheckInterval internal.Duration
+// 		Aggregations        []Aggregation
+// 		Client              *elastic.Client
+// 		acc                 telegraf.Accumulator
+// 	}
+
+// 	// type args struct {
+// 	// 	acc telegraf.Accumulator
+// 	// }
+
+// 	tests := []struct {
+// 		name    string
+// 		fields  fields
+// 		wantErr bool
+// 	}{
+// 		{
+// 			"Simple count",
+// 			fields{
+// 				URLs:                []string{"http://localhost:9200"},
+// 				Timeout:             internal.Duration{Duration: time.Second * 5},
+// 				HealthCheckInterval: internal.Duration{Duration: time.Second * 5},
+// 			},
+// 			false,
+// 		},
+// 		// TODO: Add test cases.
+// 	}
+// 	for _, tt := range tests {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			e := &ElasticsearchQuery{
+// 				URLs:                tt.fields.URLs,
+// 				Username:            tt.fields.Username,
+// 				Password:            tt.fields.Password,
+// 				EnableSniffer:       tt.fields.EnableSniffer,
+// 				Tracelog:            tt.fields.Tracelog,
+// 				Timeout:             tt.fields.Timeout,
+// 				HealthCheckInterval: tt.fields.HealthCheckInterval,
+// 				Aggregations:        tt.fields.Aggregations,
+// 				Client:              tt.fields.Client,
+// 				acc:                 tt.fields.acc,
+// 			}
+
+// 			if err := e.Gather(tt.args.acc); (err != nil) != tt.wantErr {
+// 				t.Errorf("ElasticsearchQuery.Gather() error = %v, wantErr %v", err, tt.wantErr)
+// 			}
+// 		})
+
+// 	}
+// }
+
+func TestElasticsearchQuery_buildAggregationQuery(t *testing.T) {
 	type fields struct {
 		URLs                []string
 		Username            string
@@ -277,26 +334,24 @@ func TestElasticsearchQuery_Gather(t *testing.T) {
 		Client              *elastic.Client
 		acc                 telegraf.Accumulator
 	}
-
-	// type args struct {
-	// 	acc telegraf.Accumulator
-	// }
-
+	type args struct {
+		mapMetricFields map[string]string
+		aggregation     Aggregation
+	}
 	tests := []struct {
 		name    string
 		fields  fields
+		args    args
+		want    []aggregationQueryData
 		wantErr bool
 	}{
 		{
-			"Simple count",
-			fields{
-				URLs:                []string{"http://localhost:9200"},
-				Timeout:             internal.Duration{Duration: time.Second * 5},
-				HealthCheckInterval: internal.Duration{Duration: time.Second * 5},
-			},
+			"http_error",
+			fields{},
+			args{},
+			[]aggregationQueryData{},
 			false,
 		},
-		// TODO: Add test cases.
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -312,10 +367,14 @@ func TestElasticsearchQuery_Gather(t *testing.T) {
 				Client:              tt.fields.Client,
 				acc:                 tt.fields.acc,
 			}
-			if err := e.Gather(tt.args.acc); (err != nil) != tt.wantErr {
-				t.Errorf("ElasticsearchQuery.Gather() error = %v, wantErr %v", err, tt.wantErr)
+			got, err := e.buildAggregationQuery(tt.args.mapMetricFields, tt.args.aggregation)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ElasticsearchQuery.buildAggregationQuery() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ElasticsearchQuery.buildAggregationQuery() = %v, want %v", got, tt.want)
 			}
 		})
-
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -31,22 +32,29 @@ const sampleConfig = `
   ## Set the interval to check if the Elasticsearch nodes are available
   ## Setting to "0s" will disable the health check (not recommended in production)
   health_check_interval = "10s"
-  ## HTTP basic authentication details (eg. when using Shield)
+  ## HTTP basic authentication details (eg. when using x-pack)
   # username = "telegraf"
   # password = "mypassword"
   tracelog = false
 
+  ## Optional SSL Config
+  # ssl_ca = "/etc/telegraf/ca.pem"
+  # ssl_cert = "/etc/telegraf/cert.pem"
+  # ssl_key = "/etc/telegraf/key.pem"
+  ## Use SSL but skip chain & host verification
+  # insecure_skip_verify = false
+
   [[inputs.elasticsearch_query.aggregation]]
-    measurement_name = "cpu_agg"
-    index = "metricbeat-*"
-    filter_query = "type:metricsets"
-    metric_fields = ["system.cpu.*.pct"]
+    measurement_name = "nginx_logs"
+    index = "nginxlogs-*"
+    filter_query = ""
+    metric_fields = ["response_time"]
     metric_function = "avg"
-    tags = ["beat.hostname"]
+    tags = ["URI", "response", "method"]
 	include_missing_tag = true
 	missing_tag_value = "null"
 	date_field = "@timestamp"
-	query_period = "5m"
+	query_period = "1m"
 
   [[inputs.elasticsearch_query.aggregation]]
     measurement_name = "disk_agg"
@@ -61,11 +69,10 @@ const sampleConfig = `
 	query_window_interval = "2m"
 
   [[inputs.elasticsearch_query.search]]
-    measurement_name = "http_error"
+    measurement_name = "logs_error"
 	index = "*"
 	filter_query = "ERROR"
 	query_period = "1m"
-
 `
 
 type ElasticsearchQuery struct {
@@ -77,6 +84,10 @@ type ElasticsearchQuery struct {
 	Timeout             internal.Duration
 	HealthCheckInterval internal.Duration
 	Aggregations        []Aggregation `toml:"aggregation"`
+	SSLCA               string        `toml:"ssl_ca"`   // Path to CA file
+	SSLCert             string        `toml:"ssl_cert"` // Path to host cert file
+	SSLKey              string        `toml:"ssl_key"`  // Path to cert key file
+	InsecureSkipVerify  bool          // Use SSL but skip chain & host verification
 	Client              *elastic.Client
 	acc                 telegraf.Accumulator
 }
@@ -119,9 +130,24 @@ func (e *ElasticsearchQuery) init() error {
 }
 
 func (e *ElasticsearchQuery) connectToES() error {
+
 	var clientOptions []elastic.ClientOptionFunc
 
+	tlsCfg, err := internal.GetTLSConfig(e.SSLCert, e.SSLKey, e.SSLCA, e.InsecureSkipVerify)
+	if err != nil {
+		return err
+	}
+	tr := &http.Transport{
+		TLSClientConfig: tlsCfg,
+	}
+
+	httpclient := &http.Client{
+		Transport: tr,
+		Timeout:   e.Timeout.Duration,
+	}
+
 	clientOptions = append(clientOptions,
+		elastic.SetHttpClient(httpclient),
 		elastic.SetSniff(e.EnableSniffer),
 		elastic.SetURL(e.URLs...),
 		elastic.SetHealthcheckInterval(e.HealthCheckInterval.Duration),
@@ -208,7 +234,7 @@ func (e *ElasticsearchQuery) esAggregationQuery(aggregation Aggregation) error {
 		return err
 	}
 
-	searchResult, err := e.esRunAggregationQuery(ctx, aggregation, aggregationQueryList)
+	searchResult, err := e.runAggregationQuery(ctx, aggregation, aggregationQueryList)
 	if err != nil {
 		return err
 	}
