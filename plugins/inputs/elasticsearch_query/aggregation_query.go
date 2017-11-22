@@ -3,7 +3,6 @@ package elasticsearch_query
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -76,7 +75,7 @@ func (e *ElasticsearchQuery) getMetricFields(ctx context.Context, aggregation Ag
 		}
 	}
 
-	log.Printf("map: %s", mapMetricFields)
+	//log.Printf("map: %s", mapMetricFields)
 	return mapMetricFields, nil
 }
 
@@ -138,6 +137,7 @@ func (e *ElasticsearchQuery) getFunctionAggregation(function string, aggfield st
 		agg = elastic.NewMaxAggregation().Field(aggfield)
 	case "count":
 		agg = elastic.NewValueCountAggregation().Field(aggfield)
+	// TODO:
 	// case "percentile":
 	// 	agg = elastic.NewPercentilesAggregation().Field(aggfield)
 	default:

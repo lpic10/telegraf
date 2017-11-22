@@ -35,7 +35,6 @@ const sampleConfig = `
   ## HTTP basic authentication details (eg. when using x-pack)
   # username = "telegraf"
   # password = "mypassword"
-  tracelog = false
 
   ## Optional SSL Config
   # ssl_ca = "/etc/telegraf/ca.pem"
@@ -44,35 +43,51 @@ const sampleConfig = `
   ## Use SSL but skip chain & host verification
   # insecure_skip_verify = false
 
-  [[inputs.elasticsearch_query.aggregation]]
-    measurement_name = "nginx_logs"
-    index = "nginxlogs-*"
-    filter_query = ""
-    metric_fields = ["response_time"]
-    metric_function = "avg"
-    tags = ["URI", "response", "method"]
-	include_missing_tag = true
-	missing_tag_value = "null"
-	date_field = "@timestamp"
-	query_period = "1m"
+  ## Examples:
 
-  [[inputs.elasticsearch_query.aggregation]]
-    measurement_name = "disk_agg"
-    index = "metricbeat-*"
-    filter_query = "type:metricsets"
-    metric_fields = ["system.filesystem.used.bytes"]
-	date_field = "@timestamp"
-    tags = [ "beat.hostname","system.filesystem.mount_point"]
-	include_missing_tag = true
-	missing_tag_value = "null"
-    metric_function = "avg"
-	query_window_interval = "2m"
+  # Search the average response time, per URI and per response status code
+[[inputs.elasticsearch_query.aggregation]]
+  measurement_name = "nginx_logs" 	# Name of destination measurement
+  index = "my-index-*" 				# Elasticsearch index to query
+  filter_query = "*" 				# Lucene query to filter results
+  metric_fields = ["response_time"] # Optional: field to aggregate values (must be numeric fields, for calculation)
+  metric_function = "avg" 			# Optional: function to use on aggregation 
+  tags = ["URI.keyword", "response.keyword"] # Optional: fields to be used as tags (must be non-analyzed fields, aggregations will be performed per tag)
+  include_missing_tag = true 		# Optional: set to true to not ignore documents where the tag(s) specified above does not exist  
+  missing_tag_value = "null" 		# Optional: value of the tag set for documents where the tag does not exist
+  date_field = "@timestamp" 		# Timestamp field, mandatory
+  query_period = "1m"  				# Time window to query (eg. "1m" to query documents from last minute).  Normally should be set to same as collection interval
+ 
+# Search the maximum response time per method and per URI
+[[inputs.elasticsearch_query.aggregation]]
+  measurement_name = "nginx_logs2"
+  index = "my-index-*"
+  filter_query = "*"
+  metric_fields = ["response_time"]
+  metric_function = "max"
+  tags = ["method.keyword","URI.keyword"]
+  include_missing_tag = false
+  missing_tag_value = "null"
+  date_field = "@timestamp"
+  query_period = "1m"
 
-  [[inputs.elasticsearch_query.search]]
-    measurement_name = "logs_error"
-	index = "*"
-	filter_query = "ERROR"
-	query_period = "1m"
+# Search number of documents matching a filter query
+[[inputs.elasticsearch_query.aggregation]]
+  measurement_name = "nginx_logs3"
+  index = "*"
+  filter_query = "product_1 AND HEAD"
+  query_period = "1m"
+  date_field = "@timestamp"
+
+# Search number of documents matching a filter query per response status code
+[[inputs.elasticsearch_query.aggregation]]
+  measurement_name = "nginx_logs4"
+  index = "*"
+  filter_query = "product_2"
+  tags = ["response.keyword"]
+  include_missing_tag = false
+  date_field = "@timestamp"
+  query_period = "1m"
 `
 
 type ElasticsearchQuery struct {
@@ -223,6 +238,10 @@ func (e *ElasticsearchQuery) esAggregationQuery(aggregation Aggregation) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), e.Timeout.Duration)
 	defer cancel()
+
+	if aggregation.DateField == "" {
+		return fmt.Errorf("Field 'date_field' not set")
+	}
 
 	mapMetricFields, err := e.getMetricFields(ctx, aggregation)
 	if err != nil {

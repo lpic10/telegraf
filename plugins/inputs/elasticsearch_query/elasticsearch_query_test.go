@@ -11,15 +11,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/influxdata/telegraf"
 	"github.com/influxdata/telegraf/internal"
 	"github.com/influxdata/telegraf/testutil"
+	"github.com/stretchr/testify/require"
 	elastic "gopkg.in/olivere/elastic.v5"
 )
 
-//var testindex = "test_query"
+var testindex = "test-es_query"
 
-func init() {
+func TestElasticsearchQuery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	var acc testutil.Accumulator
 
 	type nginxlog struct {
 		IPaddress    string    `json:"IP"`
@@ -33,8 +38,59 @@ func init() {
 
 	e := &ElasticsearchQuery{
 		URLs:                []string{"http://" + testutil.GetLocalHost() + ":9200"},
-		Timeout:             internal.Duration{Duration: time.Second * 5},
-		HealthCheckInterval: internal.Duration{Duration: time.Second * 10},
+		Timeout:             internal.Duration{Duration: time.Second * 30},
+		HealthCheckInterval: internal.Duration{Duration: time.Second * 30},
+		acc:                 &acc,
+		Aggregations: []Aggregation{
+			{
+				Index:           testindex,
+				MeasurementName: "nginx_uri_responsetime",
+				MetricFields:    []string{"response_time"},
+				FilterQuery:     "method: GET",
+				MetricFunction:  "avg",
+				DateField:       "@timestamp",
+				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
+				Tags:            []string{"URI.keyword"},
+			},
+			{
+				Index:           testindex,
+				MeasurementName: "nginx_status_responsetime",
+				MetricFields:    []string{"response_time"},
+				FilterQuery:     "product_1",
+				MetricFunction:  "max",
+				DateField:       "@timestamp",
+				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
+				Tags:            []string{"reponse.keyword"},
+			},
+			{
+				Index:           testindex,
+				MeasurementName: "nginx_status_responsetime",
+				MetricFields:    []string{"response_time"},
+				FilterQuery:     "product_1",
+				MetricFunction:  "sum",
+				DateField:       "@timestamp",
+				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
+				Tags:            []string{"reponse.keyword"},
+			},
+			{
+				Index:           testindex,
+				MeasurementName: "nginx_status_responsetime",
+				MetricFields:    []string{"response_time"},
+				FilterQuery:     "product_1",
+				MetricFunction:  "min",
+				DateField:       "@timestamp",
+				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
+				Tags:            []string{"reponse.keyword"},
+			},
+			{
+				Index:           testindex,
+				MeasurementName: "nginx_logs",
+				FilterQuery:     "product_2",
+				DateField:       "@timestamp",
+				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
+				Tags:            []string{"URI.keyword"},
+			},
+		},
 	}
 
 	err := e.connectToES()
@@ -68,20 +124,29 @@ func init() {
 		}
 
 		bulkRequest.Add(elastic.NewBulkIndexRequest().
-			Index("testquery").
+			Index(testindex).
 			Type("testquery_data").
 			Doc(logline))
 
 	}
 
 	if err = scanner.Err(); err != nil {
-		fmt.Printf("Error reading testdata file")
+		t.Errorf("Error reading testdata file")
 	}
 
 	_, err = bulkRequest.Do(context.Background())
 	if err != nil {
-		fmt.Printf("Error sending bulk request to Elasticsearch: %s", err)
+		t.Errorf("Error sending bulk request to Elasticsearch: %s", err)
 	}
+
+	require.NoError(t, e.Gather(&acc))
+
+	if len(acc.Errors) > 0 {
+		t.Errorf("%s", acc.Errors)
+	}
+
+	// TODO add checks on metrics, tags & fields
+
 }
 
 func TestElasticsearchQuery_getMetricFields(t *testing.T) {
@@ -136,244 +201,6 @@ func TestElasticsearchQuery_getMetricFields(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("ElasticsearchQuery.getMetricFields() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
-// func TestBuildAggregationQuery(t *testing.T) {
-// 	if testing.Short() {
-// 		t.Skip("Skipping integration test in short mode")
-// 	}
-
-// 	urls := []string{"http://" + testutil.GetLocalHost() + ":9200"}
-
-// 	var e = &ElasticsearchQuery{
-// 		URLs:                urls,
-// 		Timeout:             internal.Duration{Duration: time.Second * 5},
-// 		HealthCheckInterval: internal.Duration{Duration: time.Second * 10},
-// 	}
-
-// 	var tests = []struct {
-// 		Agg      Aggregation
-// 		Expected []string
-// 	}{
-// 		{
-// 			Aggregation{
-// 				Index:           "testagg_data",
-// 				MeasurementName: "avg_order_price",
-// 				FilterQuery:     "type: order AND status: completed",
-// 				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
-// 				MetricFields:    []string{"price"},
-// 				DateField:       "time",
-// 				Tags:            []string{"manufacturer", "article"},
-// 				MetricFunction:  "avg",
-// 			},
-// 			[]string{
-// 				"{\"aggregations\":{\"manufacturer\":{\"aggregations\":{\"price\":{\"avg\":{\"field\":\"price\"}}},\"terms\":{\"field\":\"manufacturer\",\"size\":1000}}},\"terms\":{\"field\":\"article\",\"size\":1000}}",
-// 			},
-// 		},
-// 	}
-
-// 	mapMetricFields := make(map[string]string)
-// 	mapMetricFields["price"] = ("float")
-
-// 	for _, test := range tests {
-// 		queryData, err := e.buildAggregationQuery(mapMetricFields, test.Agg)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-
-// 		for _, query := range queryData {
-// 			if query.aggregation != nil {
-// 				if query.isParent == true {
-// 					src, err := query.aggregation.Source()
-// 					if err != nil {
-// 						t.Fatal(err)
-// 					}
-// 					data, err := json.Marshal(src)
-// 					if err != nil {
-// 						t.Fatal(err)
-// 					}
-// 					got := string(data)
-
-// 					if got != test.Expected[0] {
-// 						t.Errorf("expected %q; got: %q", test.Expected[0], got)
-// 					}
-// 				}
-// 			}
-// 		}
-
-// 		// if path != test.Expected {
-// 		// 	t.Errorf("expected %q; got: %q", test.Expected, path)
-// 		// }
-
-// 		var acc testutil.Accumulator
-// 		err = e.Gather(&acc)
-// 	}
-
-// 	// // Verify that we can successfully write data to Elasticsearch
-// 	// err = e.Write(testutil.MockMetrics())
-// 	// require.NoError(t, err)
-
-// }
-
-// func TestElasticsearchQuery_connectToES(t *testing.T) {
-// 	type fields struct {
-// 		URLs                []string
-// 		Username            string
-// 		Password            string
-// 		EnableSniffer       bool
-// 		Tracelog            bool
-// 		Timeout             internal.Duration
-// 		HealthCheckInterval internal.Duration
-// 		Aggregations        []Aggregation
-// 		Client              *elastic.Client
-// 		acc                 telegraf.Accumulator
-// 	}
-// 	tests := []struct {
-// 		name    string
-// 		fields  fields
-// 		wantErr bool
-// 	}{
-// 		{
-// 			"Connect to Elasticsearch on localhost",
-// 			fields{
-// 				URLs:                []string{"http://localhost:9200"},
-// 				Timeout:             internal.Duration{Duration: time.Second * 5},
-// 				HealthCheckInterval: internal.Duration{Duration: time.Second * 5},
-// 			},
-// 			false,
-// 		},
-// 	}
-
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			e := &ElasticsearchQuery{
-// 				URLs:                tt.fields.URLs,
-// 				Timeout:             tt.fields.Timeout,
-// 				HealthCheckInterval: tt.fields.HealthCheckInterval,
-// 			}
-// 			if err := e.connectToES(); (err != nil) != tt.wantErr {
-// 				t.Errorf("ElasticsearchQuery.connectToES() error = %v, wantErr %v", err, tt.wantErr)
-// 			}
-// 		})
-// 	}
-// }
-
-// func TestElasticsearchQuery_Gather(t *testing.T) {
-
-// 	//var acc testutil.Accumulator
-
-// 	type fields struct {
-// 		URLs                []string
-// 		Username            string
-// 		Password            string
-// 		EnableSniffer       bool
-// 		Tracelog            bool
-// 		Timeout             internal.Duration
-// 		HealthCheckInterval internal.Duration
-// 		Aggregations        []Aggregation
-// 		Client              *elastic.Client
-// 		acc                 telegraf.Accumulator
-// 	}
-
-// 	// type args struct {
-// 	// 	acc telegraf.Accumulator
-// 	// }
-
-// 	tests := []struct {
-// 		name    string
-// 		fields  fields
-// 		wantErr bool
-// 	}{
-// 		{
-// 			"Simple count",
-// 			fields{
-// 				URLs:                []string{"http://localhost:9200"},
-// 				Timeout:             internal.Duration{Duration: time.Second * 5},
-// 				HealthCheckInterval: internal.Duration{Duration: time.Second * 5},
-// 			},
-// 			false,
-// 		},
-// 		// TODO: Add test cases.
-// 	}
-// 	for _, tt := range tests {
-// 		t.Run(tt.name, func(t *testing.T) {
-// 			e := &ElasticsearchQuery{
-// 				URLs:                tt.fields.URLs,
-// 				Username:            tt.fields.Username,
-// 				Password:            tt.fields.Password,
-// 				EnableSniffer:       tt.fields.EnableSniffer,
-// 				Tracelog:            tt.fields.Tracelog,
-// 				Timeout:             tt.fields.Timeout,
-// 				HealthCheckInterval: tt.fields.HealthCheckInterval,
-// 				Aggregations:        tt.fields.Aggregations,
-// 				Client:              tt.fields.Client,
-// 				acc:                 tt.fields.acc,
-// 			}
-
-// 			if err := e.Gather(tt.args.acc); (err != nil) != tt.wantErr {
-// 				t.Errorf("ElasticsearchQuery.Gather() error = %v, wantErr %v", err, tt.wantErr)
-// 			}
-// 		})
-
-// 	}
-// }
-
-func TestElasticsearchQuery_buildAggregationQuery(t *testing.T) {
-	type fields struct {
-		URLs                []string
-		Username            string
-		Password            string
-		EnableSniffer       bool
-		Tracelog            bool
-		Timeout             internal.Duration
-		HealthCheckInterval internal.Duration
-		Aggregations        []Aggregation
-		Client              *elastic.Client
-		acc                 telegraf.Accumulator
-	}
-	type args struct {
-		mapMetricFields map[string]string
-		aggregation     Aggregation
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		want    []aggregationQueryData
-		wantErr bool
-	}{
-		{
-			"http_error",
-			fields{},
-			args{},
-			[]aggregationQueryData{},
-			false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := &ElasticsearchQuery{
-				URLs:                tt.fields.URLs,
-				Username:            tt.fields.Username,
-				Password:            tt.fields.Password,
-				EnableSniffer:       tt.fields.EnableSniffer,
-				Tracelog:            tt.fields.Tracelog,
-				Timeout:             tt.fields.Timeout,
-				HealthCheckInterval: tt.fields.HealthCheckInterval,
-				Aggregations:        tt.fields.Aggregations,
-				Client:              tt.fields.Client,
-				acc:                 tt.fields.acc,
-			}
-			got, err := e.buildAggregationQuery(tt.args.mapMetricFields, tt.args.aggregation)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ElasticsearchQuery.buildAggregationQuery() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("ElasticsearchQuery.buildAggregationQuery() = %v, want %v", got, tt.want)
 			}
 		})
 	}
