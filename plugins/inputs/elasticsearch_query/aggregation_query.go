@@ -13,9 +13,14 @@ func (e *ElasticsearchQuery) runAggregationQuery(ctx context.Context, aggregatio
 
 	now := time.Now().UTC()
 	from := now.Add(aggregation.QueryPeriod.Duration * -1)
+	filterQuery := aggregation.FilterQuery
+
+	if filterQuery == "" {
+		filterQuery = "*"
+	}
 
 	query := elastic.NewBoolQuery()
-	query = query.Filter(elastic.NewQueryStringQuery(aggregation.FilterQuery))
+	query = query.Filter(elastic.NewQueryStringQuery(filterQuery))
 	query = query.Filter(elastic.NewRangeQuery(aggregation.DateField).From(from).To(now))
 
 	search := e.Client.Search().

@@ -17,14 +17,13 @@ import (
 	elastic "gopkg.in/olivere/elastic.v5"
 )
 
-var testindex = "test-es_query"
-
 func TestElasticsearchQuery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")
 	}
 
 	var acc testutil.Accumulator
+	var testindex = "test-elasticsearch_query-" + strconv.Itoa(int(time.Now().Unix()))
 
 	type nginxlog struct {
 		IPaddress    string    `json:"IP"`
@@ -44,53 +43,93 @@ func TestElasticsearchQuery(t *testing.T) {
 		Aggregations: []Aggregation{
 			{
 				Index:           testindex,
-				MeasurementName: "nginx_uri_responsetime",
+				MeasurementName: "measurement1",
 				MetricFields:    []string{"response_time"},
-				FilterQuery:     "method: GET",
+				FilterQuery:     "product_1",
 				MetricFunction:  "avg",
 				DateField:       "@timestamp",
-				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
+				QueryPeriod:     internal.Duration{Duration: time.Second * 600},
 				Tags:            []string{"URI.keyword"},
 			},
 			{
 				Index:           testindex,
-				MeasurementName: "nginx_status_responsetime",
+				MeasurementName: "measurement2",
 				MetricFields:    []string{"response_time"},
-				FilterQuery:     "product_1",
+				FilterQuery:     "downloads",
 				MetricFunction:  "max",
 				DateField:       "@timestamp",
-				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
-				Tags:            []string{"reponse.keyword"},
+				QueryPeriod:     internal.Duration{Duration: time.Second * 600},
+				Tags:            []string{"URI.keyword"},
 			},
 			{
 				Index:           testindex,
-				MeasurementName: "nginx_status_responsetime",
+				MeasurementName: "measurement3",
 				MetricFields:    []string{"response_time"},
-				FilterQuery:     "product_1",
+				FilterQuery:     "downloads",
 				MetricFunction:  "sum",
 				DateField:       "@timestamp",
-				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
-				Tags:            []string{"reponse.keyword"},
+				QueryPeriod:     internal.Duration{Duration: time.Second * 600},
+				Tags:            []string{"response.keyword"},
 			},
 			{
 				Index:           testindex,
-				MeasurementName: "nginx_status_responsetime",
+				MeasurementName: "measurement4",
 				MetricFields:    []string{"response_time"},
-				FilterQuery:     "product_1",
+				FilterQuery:     "downloads",
 				MetricFunction:  "min",
 				DateField:       "@timestamp",
-				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
-				Tags:            []string{"reponse.keyword"},
+				QueryPeriod:     internal.Duration{Duration: time.Second * 600},
+				Tags:            []string{"response.keyword"},
 			},
 			{
 				Index:           testindex,
-				MeasurementName: "nginx_logs",
+				MeasurementName: "measurement5",
 				FilterQuery:     "product_2",
 				DateField:       "@timestamp",
-				QueryPeriod:     internal.Duration{Duration: time.Second * 300},
+				QueryPeriod:     internal.Duration{Duration: time.Second * 600},
 				Tags:            []string{"URI.keyword"},
 			},
 		},
+	}
+
+	fields1 := map[string]interface{}{
+		"response_time_avg": float64(757563.8244345386),
+		"doc_count":         int64(30285),
+	}
+
+	fields2 := map[string]interface{}{
+		"response_time_max": float64(2.290137E7),
+		"doc_count":         int64(73),
+	}
+
+	fields3 := map[string]interface{}{
+		"response_time_sum": float64(884),
+		"doc_count":         int64(4),
+	}
+
+	fields4 := map[string]interface{}{
+		"response_time_min": float64(221),
+		"doc_count":         int64(4),
+	}
+
+	fields5 := map[string]interface{}{
+		"doc_count": int64(21104),
+	}
+
+	tags1 := map[string]string{
+		"URI_keyword": "/downloads/product_1",
+	}
+
+	tags2 := map[string]string{
+		"URI_keyword": "/downloads/product_3",
+	}
+
+	tags3 := map[string]string{
+		"response_keyword": "416",
+	}
+
+	tags4 := map[string]string{
+		"URI_keyword": "/downloads/product_2",
 	}
 
 	err := e.connectToES()
@@ -139,13 +178,20 @@ func TestElasticsearchQuery(t *testing.T) {
 		t.Errorf("Error sending bulk request to Elasticsearch: %s", err)
 	}
 
+	// wait 5s for Elasticsearch to index, so results are consistent
+	time.Sleep(time.Second * 5)
+
 	require.NoError(t, e.Gather(&acc))
 
 	if len(acc.Errors) > 0 {
 		t.Errorf("%s", acc.Errors)
 	}
 
-	// TODO add checks on metrics, tags & fields
+	acc.AssertContainsTaggedFields(t, "measurement1", fields1, tags1)
+	acc.AssertContainsTaggedFields(t, "measurement2", fields2, tags2)
+	acc.AssertContainsTaggedFields(t, "measurement3", fields3, tags3)
+	acc.AssertContainsTaggedFields(t, "measurement4", fields4, tags3)
+	acc.AssertContainsTaggedFields(t, "measurement5", fields5, tags4)
 
 }
 
